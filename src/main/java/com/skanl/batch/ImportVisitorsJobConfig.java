@@ -20,6 +20,7 @@ import org.springframework.batch.integration.config.annotation.EnableBatchIntegr
 import org.springframework.batch.item.file.FlatFileItemReader;
 import org.springframework.batch.item.file.builder.FlatFileItemReaderBuilder;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -38,6 +39,8 @@ import org.springframework.integration.kafka.outbound.KafkaProducerMessageHandle
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.retry.policy.AlwaysRetryPolicy;
+
+import java.util.function.Function;
 
 @Configuration
 public class ImportVisitorsJobConfig {
@@ -89,6 +92,9 @@ public class ImportVisitorsJobConfig {
         @Autowired
         private MongoTransactionManager transactionManager;
 
+//        @Value("${visitor.chunk.request.topic: 'visitor-chunkRequests_0'}")
+//        private String visitorChunkRequestTopic;
+
         @Bean
         public Job importVisitorsJob(JobRepository jobRepository, Step importVisitorsStep){
             return new JobBuilder("importVisitorsJob",jobRepository)
@@ -111,9 +117,6 @@ public class ImportVisitorsJobConfig {
                     .build();
         }
 
-
-
-
         public QueueChannel inboundReplies(){
             return new QueueChannel();
         }
@@ -121,6 +124,7 @@ public class ImportVisitorsJobConfig {
         @Bean
         public IntegrationFlow inboundFlow(ConsumerFactory<String, Visitor> cf) {
             return IntegrationFlow
+//                    .from(Kafka.messageDrivenChannelAdapter(cf, "visitor-chunkReplies_0", "visitor-chunkReplies_1", "visitor-chunkReplies_2")) //consuming from kafka
                     .from(Kafka.messageDrivenChannelAdapter(cf, "visitor-chunkReplies")) //consuming from kafka
                     .log(LoggingHandler.Level.WARN)
                     .channel(inboundReplies())
@@ -138,6 +142,7 @@ public class ImportVisitorsJobConfig {
         public IntegrationFlow outboundFlow() {
             var messageHandler = new KafkaProducerMessageHandler<>(kafkaTemplate);
             messageHandler.setTopicExpression(new LiteralExpression("visitor-chunkRequests"));
+//
             return IntegrationFlow.from(outboundRequests())
                     .log(LoggingHandler.Level.WARN)
                     .handle(messageHandler)
@@ -170,12 +175,16 @@ public class ImportVisitorsJobConfig {
         @Autowired
         private VisitorsRepo visitorsRepo;
 
+//        @Value("${visitor.chunk.replies.topic: 'visitor-chunkReplies_0'}")
+//        private String visitorChunkRepliesTopic;
+
         @Bean
-        public IntegrationFlow salesWorkerStep(){
+        public IntegrationFlow importVisitorsWorkerStep(){
             return this.remoteChunkingWorkerBuilder
                     .inputChannel(inboundRequests())
                     .itemProcessor(visitor -> {
                         log.info("processing data on worker: {}", visitor);
+                        Thread.sleep(1000);
                         return visitor;
                     })
                     .itemWriter(items -> visitorsRepo.saveAll(items))
